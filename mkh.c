@@ -67,7 +67,7 @@ int main(int argc, char* argv[]){
 
     long sz = ftell(fin);
     if(sz < 0){
-        fprintf(stderr,"ERROR: Failed to tell tile size");
+        fprintf(stderr,"ERROR: Failed to tell file size");
         fclose(fin);
         return -1;
     }

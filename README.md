@@ -1,4 +1,4 @@
-# MakeHeader
+# MaKeHeader
 
 a simple tool to transform a binary file into a c header for embeding resources
 
