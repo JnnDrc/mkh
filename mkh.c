@@ -117,7 +117,7 @@ int main(int argc, char* argv[]){
     if(!isalpha((unsigned char)fname[0]) && fname[0] != '_') fname[0] = '_';
 
     if(!fname[0]){
-        fprintf(stderr,"ERROR: Inalid input name");
+        fprintf(stderr,"ERROR: Invalid input name");
         free(buf);
         fclose(fin);
         return -1;
