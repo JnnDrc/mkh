@@ -2,9 +2,13 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <stdnoreturn.h>
+#include <stdarg.h>
 
 char* strupper(char* s);
 char* strsanit(char* s);
+
+noreturn void panicf(char* format, ...);
 
 char* parse_out(char* in);
 
@@ -18,6 +22,8 @@ void help(char* name);
 #define F_HASOUT    FLAG(1)
 #define F_CONST     FLAG(2)
 #define F_STATIC    FLAG(3)
+#define F_CHARS     FLAG(4)
+#define F_STRING    FLAG(5)
 #define F_DEFAULT   0
 
 #define MAX_PATH    256
@@ -25,29 +31,26 @@ void help(char* name);
 #define TMPSIZ      256
 
 int main(int argc, char* argv[]){
-    if(argc < 2){
-        fprintf(stderr,"USAGE: %s input [--flags]",argv[0]);
-        return -1;
-    }
+    if(argc < 2) panicf("USAGE: %s, input [--flags]",argv[0]);
     // parse input flags -------------------------------------------------------
-
-    // defaults ------------------------
+    // -- defaults ------------------------
     int flags    = F_DEFAULT;
     char* in     = NULL;
     char* out    = NULL;
     int indent   = 4;
     size_t bytes = 16;
-    // parse flags ---------------------
+    // -- parse flags ---------------------
     for(int i = 1; i < argc; i++){
         if(argv[i][0] == '-'){
             if      (!strcmp(argv[i],"--const"))  SETF(flags,F_CONST);
             else if (!strcmp(argv[i],"--static")) SETF(flags,F_STATIC);
+            else if (!strcmp(argv[i],"--chars"))  SETF(flags,F_CHARS);
+            else if (!strcmp(argv[i],"--string")) SETF(flags,F_STRING);
             else if (!strcmp(argv[i],"--out") || !strcmp(argv[i],"-o")){
-                if(HASF(flags,F_HASOUT)){
-                    fprintf(stderr,"ERROR: Multiple output files passed, only one is supported");
-                    return -1;
-                }
+                if(HASF(flags,F_HASOUT))
+                    panicf("ERROR: Multiple output files passed, only one is supported");
                 out = argv[++i];
+                if(!out) panicf("ERROR: output file can't be NULL");
                 SETF(flags,F_HASOUT);
             }
             else if (!strcmp(argv[i],"--indent") || !strcmp(argv[i],"-i")) indent = atoi(argv[++i]);
@@ -56,62 +59,46 @@ int main(int argc, char* argv[]){
                 help(argv[0]);
                 return 0;
             }
-            else{
-                fprintf(stderr,"ERROR: Unknown option '%s'",argv[i]);
-                return -1;
-            }
+            else panicf("ERROR: Unknown option '%s'",argv[i]);
         }else{
-            if(HASF(flags,F_HASIN)){
-                fprintf(stderr,"ERROR: Multiple input files passed, only one is supported");
-                return -1;
-            }
+            if(HASF(flags,F_HASIN))
+                panicf("ERROR: Multiple input files passed, only one is supported");
             in = argv[i];
             SETF(flags, F_HASIN);
         }
     }
-    if(!HASF(flags,F_HASIN)){
-        fprintf(stderr,"ERROR: No input file passed");
-        return -1;
-    }
+    if(!HASF(flags,F_HASIN)) panicf("ERROR: No input file passed");
+    if(HASF(flags,F_CHARS) && HASF(flags,F_STRING))
+        panicf("ERROR: Can't output file as chars and string at same time");
 
     // read input --------------------------------------------------------------
 
     FILE* fin = fopen(in,"rb");
-    if(!fin){
-        fprintf(stderr,"ERROR: Failed to open file '%s'",in);
-        return -1;
-    }
+    if(!fin) panicf("ERROR: Failed to open file %s",in);
 
-    if(fseek(fin,0L,SEEK_END) != 0){
-        fprintf(stderr,"ERROR: Failed to seek file");
-        return -1;
-    }
+    if(fseek(fin,0L,SEEK_END) != 0) panicf("ERROR: Failed to seek file");
 
     long sz = ftell(fin);
     if(sz < 0){
-        fprintf(stderr,"ERROR: Failed to tell file size");
         fclose(fin);
-        return -1;
+        panicf("ERROR: Failed to tell file size");
     }
     if(sz == 0){
-        fprintf(stderr,"ERROR: File is empty");
         fclose(fin);
-        return -1;
+        panicf("ERROR: File is empty");
     }
     rewind(fin);
     size_t insz = (size_t)sz;
 
     unsigned char* buf = malloc(insz);
     if(!buf){
-        fprintf(stderr,"ERROR: Failed to allocate memory");
         fclose(fin);
-        return -1;
+        panicf("ERROR: Failed to allocate memory");
     }
     if (fread(buf,1,insz,fin) != insz){
-        fprintf(stderr,"ERROR: Failed to read input file");
         free(buf);
         fclose(fin);
-        return -1;
+        panicf("ERROR: Failed to read input file");
     }
     fclose(fin);
 
@@ -119,29 +106,26 @@ int main(int argc, char* argv[]){
 
     if(!HASF(flags,F_HASOUT)) out = parse_out(in);
     if(!out){
-        fprintf(stderr,"ERROR: Failed to allocate memory");
         free(buf);
-        return -1;
+        panicf("ERROR: Failed to allocate memory");
     }
     if(!out[0]){
-        fprintf(stderr,"ERROR: Invalid input name");
         free(buf);
-        return -1;
+        panicf("ERROR: Invalid input name");
     }
 
     // output to file ----------------------------------------------------------
 
-    // open file -----------------------
+    // -- open file -----------------------
     char tmp[TMPSIZ];
     snprintf(tmp,sizeof(tmp),"%s.h",out);
     FILE* fout = fopen(tmp,"w");
     if(!fout){
-        fprintf(stderr,"ERROR: Failed to open file '%s'",tmp);
         free(buf);
-        return -1;
+        panicf("ERROR: Failed to open file '%s'",tmp);
     }
     
-    // make storage modifiers ----------
+    // -- make storage modifiers ----------
     char dec_mods[MAX_SPEC] = "";
     char def_mods[MAX_SPEC] = "";
     if(HASF(flags,F_STATIC)){
@@ -152,32 +136,65 @@ int main(int argc, char* argv[]){
         strcat(dec_mods,"const ");
         strcat(def_mods,"const ");
     }
+    if(!HASF(flags,F_CHARS) && !HASF(flags,F_STRING)){
+        strcat(dec_mods,"unsigned ");
+        strcat(def_mods,"unsigned ");
+    }
     
     snprintf(tmp,sizeof(tmp),"%s",out);
     strupper(tmp);
     strsanit(tmp);
 
-    // header --------------------------
+    // -- header --------------------------
     fprintf(fout,"#ifndef %s_H\n",tmp);
     fprintf(fout,"#define %s_H\n\n",tmp);
     
     fprintf(fout,"#define %s_SIZE %zu\n",tmp,insz);
-    fprintf(fout,"%sunsigned char %s[%s_SIZE];\n",dec_mods,out,tmp);
+    fprintf(fout,"%schar %s[%s_SIZE];\n",dec_mods,out,tmp);
     fprintf(fout,"\n#endif /* %s_H */\n",tmp);
     // -------------
     fprintf(fout,"\n");
-    // data ----------------------------
+    // -- data ----------------------------
     fprintf(fout,"#ifdef %s_DATA\n\n",tmp);
-    fprintf(fout,"%sunsigned char %s[%s_SIZE] = {\n",def_mods,out,tmp);
 
-    for (size_t i = 0; i < insz; i += bytes) {
+    if(HASF(flags,F_STRING)){
+        fprintf(fout,"%schar %s[%s_SIZE] = \n",def_mods,out,tmp);
         for(int i = 0; i < indent; i++) fprintf(fout," ");
-        for (size_t j = 0; j < bytes; j++) {
-            if (i + j < insz) fprintf(fout,"0x%02x, ", buf[i + j]);
+        fprintf(fout,"\"");
+        for(size_t i = 0; i < insz; i++){
+            if(buf[i] == '\n' || buf[i] == '\r'){
+                // in case of \r\n skip one more char (shitdows shit)
+                if(buf[i+1] == '\n') i++;
+                fprintf(fout,"\\n\"");
+                if(i+1 < insz){
+                    fprintf(fout,"\n");
+                    for(int i = 0; i < indent; i++) fprintf(fout," ");
+                    fprintf(fout,"\"");
+                }
+            }else{
+                fprintf(fout,"%c",buf[i]);
+            }
         }
-        fprintf(fout,"\n");
+        fprintf(fout,";\n");
     }
-    fprintf(fout,"};\n");
+    else{
+        fprintf(fout,"%schar %s[%s_SIZE] = {\n",def_mods,out,tmp);
+        for (size_t i = 0; i < insz; i += bytes) {
+            for(int j = 0; j < indent; j++) fprintf(fout," ");
+            for (size_t j = 0; j < bytes; j++) {
+                if (i + j < insz){
+                    if(HASF(flags,F_CHARS)){
+                        if(isprint(buf[i+j])) fprintf(fout,"\'%c\', ", buf[i+j]);
+                        else fprintf(fout,"\'\\x%02x\', ",buf[i+j]);
+                    }
+                    else fprintf(fout,"0x%02x, ", buf[i + j]);
+                }
+            }
+            fprintf(fout,"\n");
+        }
+        fprintf(fout,"};\n");
+    }
+
     fprintf(fout,"\n#endif /* %s_DATA */",tmp);
 
     // exit --------------------------------------------------------------------
@@ -195,6 +212,14 @@ char* strsanit(char* s){
     for(char* p = s; *p; p++)
         if(!isalnum((unsigned char)*p) && *p != '_') *p = '_';
     return s;
+}
+
+noreturn void panicf(char* format, ...){
+    va_list va;
+    va_start(va,format);
+    vfprintf(stderr,format,va);
+    va_end(va);
+    exit(-1);
 }
 
 char* parse_out(char* in){
@@ -242,7 +267,9 @@ void help(char* name){
     fprintf(stdout,"    --out     -o  set output to <name>.h       [default=input.h]\n");
     fprintf(stdout,"    --const       make data constant           [default=false]\n");
     fprintf(stdout,"    --static      make data static             [default=false]\n");
+    fprintf(stdout,"    --chars       print bytes as characters    [default=false]\n");
+    fprintf(stdout,"    --string      convert to string            [default=false]\n");
     fprintf(stdout,"    --indent  -i  set indentation size         [default=4]\n");
-    fprintf(stdout,"    --bytes   -b  set amount of bytes per line [default=16]");
+    fprintf(stdout,"    --bytes   -b  set amount of bytes per line [default=16]\n");
     fprintf(stdout,"    --help    -h  print this help\n");
 }

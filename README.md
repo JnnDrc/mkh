@@ -1,6 +1,6 @@
 # MaKeHeader
 
-a simple tool to transform a binary file into a c header for embeding resources
+a simple tool to transform a file into a C header for embeding resources
 
 ## Usage
 
@@ -18,6 +18,23 @@ creates file effect_wav.h, that can be used like a stb style header
 
 ...
 wave_t = load_wave_from_mem(effect_wav,EFFECT_WAV_SIZE); // mkh also define a _SIZE macro with the file size
+...
+
+```
+
+it can also transform text files into strings, using `--string` flag
+
+`mkh script.lua --string`
+
+creates a file the file script_lua_h
+
+```c
+#define SCRIPT_LUA_DATA
+#include "script_lua.h"
+
+...
+if (luaL_dostring(L,script_lua) != LUA_OK)
+    luaL_error(L,"ERROR: %s\n",lua_tostring(L,-1));
 ...
 
 ```
